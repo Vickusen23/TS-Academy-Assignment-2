@@ -1,192 +1,96 @@
 #!/usr/bin/env bash
-
 set -u
-
 PASS=0
 FAIL=0
-WARN=0
-
-pass() {
-    echo "[PASS] $1"
-    ((PASS += 1))
-}
-
-fail() {
-    echo "[FAIL] $1"
-    ((FAIL += 1))
-}
-
-warn() {
-    echo "[WARN] $1"
-    ((WARN += 1))
-}
-
+pass() { echo "PASS: $1"; PASS=$((PASS+1)); }
+fail() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
 echo "======================================"
-echo "      ASSIGNMENT 1 SELF-GRADER"
+echo " Assignment 2 - Local Grader"
+echo " Dockerized Diagnostic CLI"
 echo "======================================"
 echo
 
-# Check required files.
-for file in README.md system-info.sh disk-check.sh network-check.sh grade.sh logs/.gitkeep; do
-    if [[ -f "$file" ]]; then
-        pass "Required file exists: $file"
-    else
-        fail "Missing required file: $file"
-    fi
+for f in README.md Dockerfile compose.yaml .dockerignore app/diagnostic.sh test.sh; do
+  [[ -f "$f" ]] && pass "Required file exists: $f" || fail "Missing required file: $f"
 done
 
-echo
-echo "--- Bash syntax ---"
-
-for file in system-info.sh disk-check.sh network-check.sh grade.sh; do
-    if [[ -f "$file" ]] && bash -n "$file" 2>/dev/null; then
-        pass "Valid Bash syntax: $file"
-    else
-        fail "Bash syntax error or missing script: $file"
-    fi
+for f in app/*.sh test.sh; do
+  [[ -f "$f" ]] || continue
+  bash -n "$f" >/dev/null 2>&1 && pass "Bash syntax: $f" || fail "Bash syntax error: $f"
 done
 
-echo
-echo "--- Executable permissions ---"
+[[ -x app/diagnostic.sh ]] && pass "diagnostic.sh is executable" || fail "app/diagnostic.sh is not executable"
 
-for file in system-info.sh disk-check.sh network-check.sh grade.sh; do
-    if [[ -x "$file" ]]; then
-        pass "Executable: $file"
-    else
-        fail "Not executable: $file"
-    fi
-done
-
-echo
-echo "--- System information ---"
-
-if [[ -x system-info.sh ]]; then
-    system_output="$(./system-info.sh 2>&1)"
-    if [[ "$system_output" == *"Hostname:"* &&
-          "$system_output" == *"Current User:"* &&
-          "$system_output" == *"Kernel Version:"* &&
-          "$system_output" == *"Current Working Directory:"* ]]; then
-        pass "System report contains expected information"
-    else
-        fail "System report is missing expected information"
-    fi
-else
-    fail "Cannot test system report because system-info.sh is not executable"
+if ! command -v docker >/dev/null 2>&1; then
+  echo
+  echo "ERROR: Docker is required to grade Assignment 2."
+  exit 2
 fi
 
-echo
-echo "--- Disk-check validation ---"
+grep -Eq '^[[:space:]]*FROM[[:space:]]+' Dockerfile && pass "Dockerfile has FROM" || fail "Dockerfile has no FROM"
+grep -Eq 'ENTRYPOINT|CMD' Dockerfile && pass "Dockerfile defines ENTRYPOINT or CMD" || fail "Dockerfile has neither ENTRYPOINT nor CMD"
+grep -Eq '^\.git/?$|^\.git$' .dockerignore && pass ".dockerignore excludes .git" || fail ".dockerignore should exclude .git"
 
-if [[ -x disk-check.sh ]]; then
-    if ./disk-check.sh abc / >/dev/null 2>&1; then
-        fail "Invalid disk threshold was incorrectly accepted"
-    else
-        rc=$?
-        if (( rc == 2 )); then
-            pass "Invalid disk threshold returns exit code 2"
-        else
-            fail "Invalid disk threshold returned exit code $rc instead of 2"
-        fi
-    fi
-
-    if ./disk-check.sh 100 / >/dev/null 2>&1; then
-        pass "Valid disk check runs successfully"
-    else
-        fail "Valid disk check failed"
-    fi
+IMAGE="student-diagnostic-grader"
+if docker build -t "$IMAGE" . >/tmp/assignment2-docker-build.log 2>&1; then
+  pass "Docker image builds successfully"
 else
-    fail "Cannot test disk-check.sh because it is not executable"
+  fail "Docker image failed to build"
+  cat /tmp/assignment2-docker-build.log
 fi
 
-echo
-echo "--- Network-check validation ---"
+run_test() {
+  name="$1"
+  shift
+  if "$@" >/tmp/assignment2-test.log 2>&1; then
+    pass "$name"
+    return 0
+  else
+    fail "$name"
+    cat /tmp/assignment2-test.log
+    return 1
+  fi
+}
 
-if [[ -x network-check.sh ]]; then
-    if ./network-check.sh example.com 70000 >/dev/null 2>&1; then
-        fail "Invalid network port was incorrectly accepted"
-    else
-        rc=$?
-        if (( rc == 2 )); then
-            pass "Invalid network port returns exit code 2"
-        else
-            fail "Invalid network port returned exit code $rc instead of 2"
-        fi
-    fi
+run_test "docker help command works" docker run --rm "$IMAGE" help
+run_test "docker system command works" docker run --rm "$IMAGE" system
+run_test "docker disk command works" docker run --rm "$IMAGE" disk
 
-    if ./network-check.sh >/dev/null 2>&1; then
-        fail "Missing network target was incorrectly accepted"
-    else
-        rc=$?
-        if (( rc == 2 )); then
-            pass "Missing network target returns exit code 2"
-        else
-            fail "Missing network target returned exit code $rc instead of 2"
-        fi
-    fi
-
-    if ./network-check.sh localhost >/dev/null 2>&1; then
-        pass "Network check runs against localhost"
-    else
-        fail "Network check against localhost failed"
-    fi
+docker run --rm "$IMAGE" invalid-command >/tmp/assignment2-test.log 2>&1
+rc=$?
+if [[ $rc -ne 0 ]]; then
+  pass "Invalid command returns non-zero"
 else
-    fail "Cannot test network-check.sh because it is not executable"
+  fail "Invalid command should return non-zero"
 fi
 
-echo
-echo "--- Logging ---"
-
-if [[ -s logs/disk-check.log ]]; then
-    pass "Disk-check log exists and is not empty"
+if docker compose config >/tmp/assignment2-compose.log 2>&1; then
+  pass "Docker Compose configuration is valid"
 else
-    fail "Disk-check log is missing or empty"
+  fail "Docker Compose configuration is invalid"
+  cat /tmp/assignment2-compose.log
 fi
 
-if [[ -s logs/network-check.log ]]; then
-    pass "Network-check log exists and is not empty"
+if [[ -x ./test.sh ]]; then
+  if ./test.sh >/tmp/assignment2-student-tests.log 2>&1; then
+    pass "Student test.sh passes"
+  else
+    fail "Student test.sh fails"
+    cat /tmp/assignment2-student-tests.log
+  fi
 else
-    fail "Network-check log is missing or empty"
-fi
-
-echo
-echo "--- Git history ---"
-
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    commits="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
-    if (( commits >= 5 )); then
-        pass "Git history contains at least five commits ($commits)"
-    else
-        warn "Git history currently has $commits commit(s); aim for at least five meaningful commits"
-    fi
-
-    branch="$(git branch --show-current)"
-    echo "Current branch: $branch"
-
-    if git branch --list main | grep -q main; then
-        pass "Main branch exists"
-    else
-        warn "No local main branch found"
-    fi
-else
-    fail "This directory is not a Git repository"
+  if bash ./test.sh >/tmp/assignment2-student-tests.log 2>&1; then
+    pass "Student test.sh passes"
+  else
+    fail "Student test.sh fails"
+    cat /tmp/assignment2-student-tests.log
+  fi
 fi
 
 echo
 echo "======================================"
-echo "              SUMMARY"
+echo "Passed: $PASS"
+echo "Failed: $FAIL"
 echo "======================================"
-echo "Passed:   $PASS"
-echo "Failed:   $FAIL"
-echo "Warnings: $WARN"
-echo
-
-if (( FAIL > 0 )); then
-    echo "RESULT: NOT YET READY - fix the failed checks."
-    exit 1
-else
-    echo "RESULT: CORE CHECKS PASSED"
-    if (( WARN > 0 )); then
-        echo "Review the warnings before submission."
-    fi
-    exit 0
-fi
+docker image rm "$IMAGE" >/dev/null 2>&1 || true
+[[ $FAIL -eq 0 ]]

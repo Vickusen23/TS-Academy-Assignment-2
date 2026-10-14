@@ -1,55 +1,29 @@
-# Assignment 1: Linux, Bash and Networking
+# Assignment 2 — Dockerized Diagnostic CLI
 
-A Bash-based Linux diagnostic toolkit for collecting system
-information, checking disk usage and testing network connectivity.
+A containerized Bash diagnostic CLI tool built using Alpine Linux and Docker.
 
-## Requirements
-
-- Linux or WSL running Ubuntu
-- Bash
-- Standard Linux system utilities
-- Git
-
-## Setup
-
-Clone the repository, then enter its directory.
-
-Make the scripts executable:
-
-    chmod +x *.sh
+## Project Structure
+- `app/diagnostic.sh`: Primary diagnostic CLI script.
+- `app/health-check.sh`: Internal container health verification script.
+- `Dockerfile`: Multi-stage Alpine-based container build file.
+- `compose.yaml`: Local Docker Compose service configuration.
+- `.dockerignore`: Excludes non-essential files from build context.
+- `test.sh`: Automated test suite for container functionality.
 
 ## Usage
 
-Display system information:
+### Direct Docker Run
+```bash
+docker build -t diagnostic-tool .
 
-    ./system-info.sh
+# System info
+docker run --rm diagnostic-tool system
 
-Check disk usage against an 80% threshold:
+# Disk info
+docker run --rm diagnostic-tool disk
 
-    ./disk-check.sh 80 /
+# Network check
+docker run --rm diagnostic-tool network 127.0.0.1
 
-Check connectivity to a host:
-
-    ./network-check.sh example.com
-
-Check connectivity to a host on TCP port 443:
-
-    ./network-check.sh example.com 443
-
-## Logging
-
-Diagnostic operations will write timestamped entries to the logs/
-directory.
-
-## Testing
-
-Run the supplied grading script:
-
-    ./grade.sh
-
-## Assumptions
-
-- Scripts run in a Linux environment.
-- System information is collected at runtime.
-- Network checks depend on DNS, network access and target availability.
-- No cloud deployment is required.
+# Help
+docker run --rm diagnostic-tool help
